@@ -79,12 +79,15 @@ def convert_scores(load_path, save_path, file_name):
         df.at[i, 'state'] = int_to_state[df['Score #'][i]] 
     df = df.drop(['Score #'], axis=1) # drop score column
     
+    # reorder columns to match visbrain
+    df = df[['state', 'Sum']]
+    
     # add visbrain headers
     df_hdrs = pd.DataFrame([['*Duration_sec', df['Sum'][len(df)-1]], ['*Datafile', '-']], columns = df.columns)
     df = pd.concat([df_hdrs, df])
     
     # export to txt file
-    df.to_csv(path_or_buf = os.path.join(save_path, file_name), index=False, sep = ' ', header=False)
+    df.to_csv(path_or_buf = os.path.join(save_path, file_name), index=False, sep = '\t', header=False)
     
     
     
