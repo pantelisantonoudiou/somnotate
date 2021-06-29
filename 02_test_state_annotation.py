@@ -92,8 +92,9 @@ if __name__ == '__main__':
     accuracy = np.zeros((total_datasets))
 
     unique_states = np.unique(np.abs(state_vectors))
-    confusion = np.zeros((total_datasets, np.max(unique_states)+1, np.max(unique_states)+1))
-
+    # confusion = np.zeros((total_datasets, np.max(unique_states)+1, np.max(unique_states)+1))
+    confusion = np.zeros((total_datasets, np.max(unique_states), np.max(unique_states)))
+    
     for ii, dataset in datasets.iterrows():
 
         if args.model:
@@ -108,6 +109,7 @@ if __name__ == '__main__':
         # The loaded state sequence denotes artefact states as negative integers.
         # However, the state annotator does not distinguish between states and their corresponding artefact states.
         # Hence we need to remove the sign from the loaded state sequence.
+
         accuracy[ii] = annotator.score(signal_arrays[ii], np.abs(state_vectors[ii]))
         print("{} ({}/{}) accuracy : {:.1f}%".format(dataset['file_path_preprocessed_signals'], ii+1, len(datasets), 100 * accuracy[ii]))
 

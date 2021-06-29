@@ -175,7 +175,7 @@ def load_state_vector(file_path, mapping, time_resolution=1):
 
 
 @_handle_file_path
-def _load_visbrain_hypnogram(file_path):
+def _load_visbrain_hypnogram(file_path): # change this function to handle a csv with two columns
     """
     Load hypnogram given in visbrain Stage-duration format.
 
@@ -197,8 +197,7 @@ def _load_visbrain_hypnogram(file_path):
     http://visbrain.org/sleep.html#save-hypnogram
     """
     dtype = [('Stage', '|S30'), ('stop', float)]
-    # data = np.genfromtxt(file_path, skip_header=2, dtype=dtype, delimiter='\t')
-    data = np.genfromtxt(file_path, skip_header=2, dtype=dtype)
+    data = np.genfromtxt(file_path, skip_header=2, dtype=dtype, delimiter='\t')
     states = [state.astype(str).strip() for state in data['Stage']]
     transitions = np.r_[0, data['stop']]
     intervals = list(zip(transitions[:-1], transitions[1:]))

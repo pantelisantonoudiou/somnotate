@@ -126,7 +126,7 @@ if __name__ == '__main__':
     int_to_state = {v: k for k, v in state_to_int.items()}
 
     
-    main_path = r'C:\Users\panton01\Desktop\sleep_score' # parent directory
+    main_path = r'C:\Users\panton01\Desktop\sleep_score_2' # parent directory
     epoch = 5 # time in seconds
             
     # convert sirenia scores to visbrain
