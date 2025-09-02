@@ -45,8 +45,8 @@ def preprocess(raw_signal, sampling_frequency_in_hz,
                time_resolution_in_sec   = 1,
                low_cut                  = 1.,
                high_cut                 = 90.,
-               notch_low_cut            = 45.,
-               notch_high_cut           = 55.,
+               notch_low_cut            = 55.,
+               notch_high_cut           = 65.,
 ):
     """Wrapper around get_spectrogram, that
     1) computes the spectrogram for the given LFP/EEG/EMG trace,
@@ -142,7 +142,7 @@ if __name__ == '__main__':
                     ] + state_annotation_signals,
                     column_to_dtype = {
                         'file_path_raw_signals' : str,
-                        'sampling_frequency_in_hz' : (int, float),
+                        'sampling_frequency_in_hz' : (np.int64, int, float),
                         'file_path_preprocessed_signals' : str,
                     }
     )

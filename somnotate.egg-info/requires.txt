@@ -1,0 +1,11 @@
+numpy
+matplotlib
+scikit-learn
+pomegranate<1.0.0
+
+[pipeline]
+six
+scipy
+pandas
+pyedflib
+lspopt

@@ -1,0 +1,13 @@
+LICENSE
+README.md
+pyproject.toml
+somnotate/__init__.py
+somnotate/_automated_state_annotation.py
+somnotate/_manual_state_annotation.py
+somnotate/_plotting.py
+somnotate/_utils.py
+somnotate.egg-info/PKG-INFO
+somnotate.egg-info/SOURCES.txt
+somnotate.egg-info/dependency_links.txt
+somnotate.egg-info/requires.txt
+somnotate.egg-info/top_level.txt
