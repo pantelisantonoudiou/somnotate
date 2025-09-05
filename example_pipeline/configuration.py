@@ -4,6 +4,7 @@
 User defined variables and functions that are used across all scripts.
 """
 
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import (
@@ -22,29 +23,42 @@ from somnotate._utils import (
 # Raw signals used in the automated state annotation and their visual display
 # --------------------------------------------------------------------------------
 
-# define which columns in the spreadsheet/dataframe index the signals
-# in the raw signal array that are to be used for state inference
-state_annotation_signals = [
-    'eeg1_signal_label',
-    'eeg2_signal_label',
-    # 'emg_signal_label',
-]
+# load settings from JSON file
+with open("config.json", "r") as f:
+    config = json.load(f)
+
+# define which signals in the raw signal array are to be used for state inference
+state_annotation_signals = config["state_annotation_signals"]
 
 # define the corresponding labels when plotting these signals
-state_annotation_signal_labels = [
-    'EEG1',
-    'EEG2',
-    # 'EMG'
-]
+state_annotation_signal_labels = config["state_annotation_signal_labels"]
 
-# define the frequency bands to display when plotting
-# (has no effect on signal processing and state inference)
-state_annotation_signal_frequency_bands = [
-    # (0.5, 30.), # LFP
-    (0.5, 30.), # Frontal EEG
-    (0.5, 30.), # Occipital EEG
-    (10., 45.), # EMG
-]
+# define the frequency bands to display when plotting (has no effect on signal processing and state inference)
+state_annotation_signal_frequency_bands = config["state_annotation_signal_frequency_bands"]
+
+# # define which columns in the spreadsheet/dataframe index the signals
+# # in the raw signal array that are to be used for state inference
+# state_annotation_signals = [
+#     'eeg1_signal_label',
+#     'eeg2_signal_label',
+#     'emg_signal_label',
+# ]
+
+# # define the corresponding labels when plotting these signals
+# state_annotation_signal_labels = [
+#     'EEG1',
+#     'EEG2',
+#     'EMG'
+# ]
+
+# # define the frequency bands to display when plotting
+# # (has no effect on signal processing and state inference)
+# state_annotation_signal_frequency_bands = [
+#     # (0.5, 30.), # LFP
+#     (0.5, 30.), # Frontal EEG
+#     (0.5, 30.), # Occipital EEG
+#     (10., 45.), # EMG
+# ]
 
 # define a function that plots the raw signals
 def plot_raw_signals(raw_signals, frequency_bands, sampling_frequency, *args, **kwargs):
