@@ -152,37 +152,38 @@ def step_build_somno_csv(cfg: Dict[str, Any]) -> None:
     cfg : dict
         Settings JSON loaded from config.json.
     """
+
     parent = cfg["paths"]["parent_path"]
     edf_dir = os.path.join(parent, cfg["paths"].get("edf_dir", "edf_data"))
-    processed_dir = os.path.join(parent, "processed")  # kept simple
+    processed_dir = os.path.join(parent, "processed")
     csv_out = os.path.join(parent, cfg["paths"].get("somno_csv", "somno_input.csv"))
 
     os.makedirs(processed_dir, exist_ok=True)
     os.makedirs(os.path.dirname(csv_out) or ".", exist_ok=True)
 
-    labels = list(cfg.get("state_annotation_signals", []))
-    if not labels:
-        # fallback to EDF labels from mapping in channel order
-        labels = [cfg["edf"]["edf_label_map"][r] for r in cfg["edf"]["channel_order"]]
-
+    # Use the config values created by the GUI:
+    csv_signal_columns = list(cfg.get("state_annotation_signals", []))          # e.g., ["channel_1_label", ...]
+    channel_labels = list(cfg.get("state_annotation_signal_labels", []))        # e.g., ["bla-lfp", "fc-eeg", "emg"]
     target_fs = int(cfg["edf"].get("target_fs", 250))
 
     print("\n[2/2] Building Somnotate CSV")
     print(f"  edf in:      {edf_dir}")
     print(f"  processed:   {processed_dir}")
     print(f"  csv out:     {csv_out}")
-    print(f"  signals:     {labels}")
+    print(f"  columns:     {csv_signal_columns}")
+    print(f"  labels:      {channel_labels}")
     print(f"  fs (Hz):     {target_fs}")
 
-    # Delegate to your existing builder
     create_somno_csv(
         raw_path=edf_dir,
         processed_path=processed_dir,
         save_path=csv_out,
-        channel_labels=labels,
+        channel_labels=channel_labels,       # values in the rows
+        csv_signal_columns=csv_signal_columns,  # column headers
         sample_frequency=target_fs,
     )
     print("  ✓ Somnotate CSV created")
+
 
 
 # ----------------------------- Main ----------------------------- #

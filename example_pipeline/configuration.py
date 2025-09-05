@@ -27,11 +27,11 @@ from somnotate._utils import (
 with open("config.json", "r") as f:
     config = json.load(f)
 
-# define which signals in the raw signal array are to be used for state inference
-state_annotation_signals = config["state_annotation_signals"]
-
 # define the corresponding labels when plotting these signals
 state_annotation_signal_labels = config["state_annotation_signal_labels"]
+
+# define which signals in the raw signal array are to be used for state inference
+state_annotation_signals = [f'channel_{x+1}_label' for x in len(state_annotation_signal_labels)]
 
 # define the frequency bands to display when plotting (has no effect on signal processing and state inference)
 state_annotation_signal_frequency_bands = config["state_annotation_signal_frequency_bands"]
@@ -54,7 +54,6 @@ state_annotation_signal_frequency_bands = config["state_annotation_signal_freque
 # # define the frequency bands to display when plotting
 # # (has no effect on signal processing and state inference)
 # state_annotation_signal_frequency_bands = [
-#     # (0.5, 30.), # LFP
 #     (0.5, 30.), # Frontal EEG
 #     (0.5, 30.), # Occipital EEG
 #     (10., 45.), # EMG

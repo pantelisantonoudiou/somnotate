@@ -268,22 +268,28 @@ class SettingsApp(ctk.CTk):
         self.cfg["paths"]["labchart_dir"] = self.lab_dir_entry.get().strip() or "labchart_data"
         self.cfg["paths"]["edf_dir"] = self.edf_dir_entry.get().strip() or "edf_data"
         self.cfg["paths"]["somno_csv"] = self.csv_entry.get().strip() or "somno_input.csv"
+    
+        # Target fs
         try:
             self.cfg["edf"]["target_fs"] = int(float(self.fs_entry.get().strip()))
         except Exception:
             messagebox.showerror("Error", "Target fs must be a number.")
             return None
+    
+        # Roles + mapping
         roles = [s.strip() for s in self.roles_entry.get().split(",") if s.strip()]
         if not roles:
-            messagebox.showerror(
-                "Error", "Please enter channel roles order (e.g., vHPC, FC, EMG)."
-            )
+            messagebox.showerror("Error", "Please enter channel roles order (e.g., BLA, FC, EMG).")
             return None
+    
         mapping = {}
         for r, e in self.map_rows:
-            mapping[r] = e.get().strip() or r
+            mapping[r] = e.get().strip() or r  # EDF header text as typed by user
+    
         self.cfg["edf"]["channel_order"] = roles
         self.cfg["edf"]["edf_label_map"] = mapping
+    
+        # Frequency bands
         bands_text = self.bands_entry.get().strip()
         bands = []
         try:
@@ -298,10 +304,23 @@ class SettingsApp(ctk.CTk):
             return None
         if bands:
             self.cfg["state_annotation_signal_frequency_bands"] = bands
-        labels = [self.cfg["edf"]["edf_label_map"][r] for r in self.cfg["edf"]["channel_order"]]
-        self.cfg["state_annotation_signals"] = labels
-        self.cfg["state_annotation_signal_labels"] = labels
+    
+        # ---- Derive Somnotate-facing lists from mapping/order ----
+        # EDF header labels (as user typed, may be mixed case)
+        edf_labels = [mapping[r] for r in roles]
+        # Somnotate plot labels / CSV values should be lowercase for exact matching
+        somno_labels = [s.lower() for s in edf_labels]
+        self.cfg["state_annotation_signal_labels"] = somno_labels
+    
+        # CSV column names Somnotate expects to look up in the CSV file
+        # (generic, order-only, underscore version)
+        self.cfg["state_annotation_signals"] = [
+            f"channel_{i+1}_label" for i in range(len(somno_labels))
+        ]
+    
+        # Keep a single set of names for Somnotate to read directly
         return self.cfg
+
 
     def _refresh_preview(self):
         cfg = self._collect()
