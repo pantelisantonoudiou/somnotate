@@ -31,7 +31,7 @@ with open("config.json", "r") as f:
 state_annotation_signal_labels = config["state_annotation_signal_labels"]
 
 # define which signals in the raw signal array are to be used for state inference
-state_annotation_signals = [f'channel_{x+1}_label' for x in len(state_annotation_signal_labels)]
+state_annotation_signals = config["state_annotation_signals"]
 
 # define the frequency bands to display when plotting (has no effect on signal processing and state inference)
 state_annotation_signal_frequency_bands = config["state_annotation_signal_frequency_bands"]
