@@ -2,11 +2,13 @@
 """
 GUI to collect pipeline settings and write a single JSON config the whole stack can use.
 
-Design goals
-------------
-- One set of names, everywhere: EDF labels are also the Somnotate signal names and CSV columns.
-- Keep the UI simple: **one setup tab** with all fields (paths + channels at the top), and a separate **Preview** tab.
-- App saves `<parent_path>/config.json`.
+Changes in this version:
+- Added Pipeline → Run mode dropdown (both | edf_only | csv_only). Default = both.
+- Footer primary button label changed to "Run" (still saves config and exits).
+
+Expected downstream behavior:
+- Driver script (e.g., 00_create_somno_files.py) should read cfg["pipeline"]["run_mode"]
+  and conditionally run EDF conversion and/or CSV creation.
 
 Run
 ---
@@ -14,27 +16,34 @@ python settings_gui.py
 
 Dependencies
 ------------
-customtkinter (pip install customtkinter)
+- customtkinter  (pip install customtkinter)
+- tkinter (usually ships with Python; on some Linux distros install via OS package)
 
-Changes in this version
------------------------
-- Channel order & mapping moved directly under Parent path.
-- Footer buttons are pinned and right-aligned; only a single spacer column expands.
-- Horizontal layout made responsive: inputs stretch/shrink with the window; fixed widths removed.
 """
+from __future__ import annotations
 
 import json
 import os
+import sys
+from dataclasses import dataclass
 import tkinter as tk
-from tkinter import filedialog, messagebox
-import customtkinter as ctk
+from tkinter import messagebox, filedialog
 
+try:
+    import customtkinter as ctk
+except Exception as e:  # pragma: no cover
+    print("customtkinter is required. pip install customtkinter", file=sys.stderr)
+    raise
+
+
+# ----------------------------- Defaults ----------------------------- #
 DEFAULTS = {
     "edf": {
         "target_fs": 250,
         "channel_order": ["BLA", "FC", "EMG"],
         "edf_label_map": {"BLA": "BLA-LFP", "FC": "FC-EEG", "EMG": "EMG"},
     },
+    # Somnotate / CSV signals
     "state_annotation_signals": ["BLA-LFP", "FC-EEG", "EMG"],
     "state_annotation_signal_labels": ["BLA-LFP", "FC-EEG", "EMG"],
     "state_annotation_signal_frequency_bands": [[0.5, 30], [0.5, 30], [10, 45]],
@@ -44,322 +53,244 @@ DEFAULTS = {
         "edf_dir": "edf_data",
         "somno_csv": "somno_input.csv",
     },
+    # NEW: pipeline run mode (both | edf_only | csv_only)
+    "pipeline": {"run_mode": "both"},
 }
 
+
+# ----------------------------- Small helpers ----------------------------- #
+@dataclass
+class LabeledEntry:
+    frame: ctk.CTkFrame
+    label: ctk.CTkLabel
+    entry: ctk.CTkEntry
+
+
 class SettingsApp(ctk.CTk):
-    def __init__(self, initial=None):
+    def __init__(self, initial: dict | None = None):
         super().__init__()
         self.title("Pipeline Settings")
         self.geometry("1000x800")
-        self.minsize(800, 600)
+        self.minsize(900, 650)
 
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
         # working copy
         self.cfg = json.loads(json.dumps(initial or DEFAULTS))
-        self.final_config = None
+        self.final_config: dict | None = None
 
         # ---- Root uses grid so footer is always visible
         self.grid_rowconfigure(0, weight=1)  # tabs stretch
         self.grid_columnconfigure(0, weight=1)
 
-        # Layout: 2 tabs only → Setup, Preview
+        # Tabs
         self.tabs = ctk.CTkTabview(self)
-        self.tabs.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.tabs.add("Setup")
-        self.tabs.add("Preview")
+        self.tabs.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 0))
+        self._setup_tab = self.tabs.add("Setup")
+        self._preview_tab = self.tabs.add("Preview")
 
-        self._build_setup_tab()
-        self._build_preview_tab()
+        # Build tabs
+        self._build_setup_tab(self._setup_tab)
+        self._build_preview_tab(self._preview_tab)
 
-        # ---- Sticky footer buttons (always visible + right-aligned)
-        btns = ctk.CTkFrame(self)
-        btns.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
-        # Only col 0 expands; 1-2 are fixed button columns
-        btns.grid_columnconfigure(0, weight=1)
+        # Footer buttons
+        footer = ctk.CTkFrame(self)
+        footer.grid(row=1, column=0, sticky="ew", padx=8, pady=8)
+        footer.grid_columnconfigure((0, 1, 2), weight=1)
 
-        ctk.CTkButton(
-            btns,
-            text="Cancel",
-            height=36,
-            fg_color="grey",
-            text_color="white",
-            hover_color="#5a5a5a",
-            command=self.destroy,
-        ).grid(row=0, column=1, padx=(0, 8), pady=0, sticky="e")
-
-        ctk.CTkButton(
-            btns,
-            text="Save config.json",
-            height=36,
+        self.save_btn = ctk.CTkButton(
+            footer,
+            text="Run",  # renamed from "Save config.json"
+            height=40,
             command=self.on_save,
-        ).grid(row=0, column=2, padx=0, pady=0, sticky="e")
-
-        self._refresh_preview()
-
-    # ---------------- Utilities ---------------- #
-    def _stretch_col1(self, frame):
-        """Labels in col 0, stretchy inputs in col 1, small actions in col 2."""
-        frame.grid_columnconfigure(0, weight=0)
-        frame.grid_columnconfigure(1, weight=1)
-        frame.grid_columnconfigure(2, weight=0)
-
-    # ---------------- Tabs ---------------- #
-    def _build_setup_tab(self):
-        tab = self.tabs.tab("Setup")
-
-        # --- Section: Parent path (TOP) --- #
-        paths_top = ctk.CTkFrame(tab)
-        paths_top.pack(fill="x", padx=10, pady=(10, 6))
-        self._stretch_col1(paths_top)
-
-        ctk.CTkLabel(
-            paths_top,
-            text="Parent path (contains labchart_data and file_index.csv)",
-        ).grid(row=0, column=0, sticky="w", padx=10, pady=10)
-        self.parent_entry = ctk.CTkEntry(paths_top)
-        self.parent_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-        self.parent_entry.insert(0, self.cfg["paths"]["parent_path"])
-        ctk.CTkButton(paths_top, text="Browse", command=self._pick_parent).grid(
-            row=0, column=2, padx=10, pady=10, sticky="e"
         )
+        self.save_btn.grid(row=0, column=2, sticky="e")
 
-        # --- Section: Channels (now directly under Parent path) --- #
-        ch_frame = ctk.CTkFrame(tab)
-        ch_frame.pack(fill="x", padx=10, pady=(6, 6))
-        self._stretch_col1(ch_frame)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        ctk.CTkLabel(
-            ch_frame,
-            text="Channel order (comma-separated, and same as file_index.csv)",
-        ).grid(row=0, column=0, sticky="w", padx=10, pady=10)
-        self.roles_entry = ctk.CTkEntry(ch_frame)
-        self.roles_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-        self.roles_entry.insert(0, ", ".join(self.cfg["edf"]["channel_order"]))
-        ctk.CTkButton(ch_frame, text="Apply", command=self._apply_roles).grid(
-            row=0, column=2, padx=10, pady=10, sticky="e"
-        )
+    # ------------------------- Tab: Setup ------------------------- #
+    def _build_setup_tab(self, tab: ctk.CTkFrame) -> None:
+        tab.grid_columnconfigure(0, weight=1)
 
-        # Mapping table
-        ctk.CTkLabel(ch_frame, text="Channel Name → EDF label (header)").grid(
-            row=1, column=0, sticky="w", padx=10, pady=(6, 4)
-        )
-        self.map_frame = ctk.CTkFrame(ch_frame)
-        self.map_frame.grid(
-            row=2, column=0, columnspan=3, sticky="we", padx=10, pady=(0, 10)
-        )
-        # Make columns responsive
-        self.map_frame.grid_columnconfigure(0, weight=0)
-        self.map_frame.grid_columnconfigure(1, weight=1)
-        self.map_rows = []  # list of (role, label_entry)
-        self._rebuild_map_rows()
+        # Section: Paths
+        paths = ctk.CTkFrame(tab)
+        paths.pack(fill="x", padx=10, pady=(10, 6))
+        ctk.CTkLabel(paths, text="Paths", font=("", 14, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
 
-        # --- Section: Remaining path fields (moved below Channels) --- #
-        paths_bottom = ctk.CTkFrame(tab)
-        paths_bottom.pack(fill="x", padx=10, pady=(6, 6))
-        self._stretch_col1(paths_bottom)
+        # Parent path (project root)
+        ctk.CTkLabel(paths, text="Parent path (project root)").grid(row=1, column=0, sticky="w", padx=10)
+        self.parent_var = tk.StringVar(value=self.cfg.get("paths", {}).get("parent_path", ""))
+        parent_entry = ctk.CTkEntry(paths, textvariable=self.parent_var)
+        parent_entry.grid(row=1, column=1, sticky="ew", padx=10, pady=6)
+        paths.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(paths, text="Browse", command=self._browse_parent).grid(row=1, column=2, padx=10)
 
-        gridrow = 0
-        ctk.CTkLabel(paths_bottom, text="LabChart folder name").grid(
-            row=gridrow, column=0, sticky="w", padx=10, pady=6
-        )
-        self.lab_dir_entry = ctk.CTkEntry(paths_bottom)
-        self.lab_dir_entry.grid(row=gridrow, column=1, sticky="ew", padx=10, pady=6)
-        self.lab_dir_entry.insert(0, self.cfg["paths"]["labchart_dir"])
+        # LabChart dir
+        self.labchart_var = tk.StringVar(value=self.cfg["paths"]["labchart_dir"])
+        self._labeled_entry(paths, 2, "LabChart directory", self.labchart_var)
 
-        gridrow += 1
-        ctk.CTkLabel(paths_bottom, text="EDF output folder name").grid(
-            row=gridrow, column=0, sticky="w", padx=10, pady=6
-        )
-        self.edf_dir_entry = ctk.CTkEntry(paths_bottom)
-        self.edf_dir_entry.grid(row=gridrow, column=1, sticky="ew", padx=10, pady=6)
-        self.edf_dir_entry.insert(0, self.cfg["paths"]["edf_dir"])
+        # EDF output dir
+        self.edf_dir_var = tk.StringVar(value=self.cfg["paths"]["edf_dir"])
+        self._labeled_entry(paths, 3, "EDF output directory", self.edf_dir_var)
 
-        gridrow += 1
-        ctk.CTkLabel(paths_bottom, text="Somnotate CSV filename").grid(
-            row=gridrow, column=0, sticky="w", padx=10, pady=6
-        )
-        self.csv_entry = ctk.CTkEntry(paths_bottom)
-        self.csv_entry.grid(row=gridrow, column=1, sticky="ew", padx=10, pady=6)
-        self.csv_entry.insert(0, self.cfg["paths"]["somno_csv"])
+        # Somno CSV path
+        self.somno_csv_var = tk.StringVar(value=self.cfg["paths"]["somno_csv"])
+        self._labeled_entry(paths, 4, "Somno CSV filename", self.somno_csv_var)
 
-        # --- Section: EDF + Somnotate minor settings --- #
-        misc = ctk.CTkFrame(tab)
-        misc.pack(fill="x", padx=10, pady=(6, 10))
-        self._stretch_col1(misc)
-        
-        ctk.CTkLabel(misc, text="EDF target sampling frequency (Hz)").grid(
-            row=0, column=0, sticky="w", padx=10, pady=10
-        )
-        self.fs_entry = ctk.CTkEntry(misc)
-        self.fs_entry.grid(row=0, column=1, sticky="ew", padx=10, pady=10)
-        self.fs_entry.insert(0, str(self.cfg["edf"]["target_fs"]))
+        # Section: EDF
+        edf = ctk.CTkFrame(tab)
+        edf.pack(fill="x", padx=10, pady=(6, 6))
+        ctk.CTkLabel(edf, text="EDF Settings", font=("", 14, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
 
-        ctk.CTkLabel(
-            misc,
-            text="Frequency bands (per channel, e.g. 0.5-30;0.5-30;10-100)",
-        ).grid(row=1, column=0, sticky="w", padx=10, pady=(0, 10))
-        self.bands_entry = ctk.CTkEntry(misc)
-        self.bands_entry.grid(row=1, column=1, padx=10, pady=(0, 10), sticky="ew")
-        bands = self.cfg.get(
-            "state_annotation_signal_frequency_bands",
-            [[0.5, 30], [0.5, 30], [10, 100]],
-        )
-        self.bands_entry.insert(0, "; ".join(f"{a}-{b}" for a, b in bands))
+        # target Fs
+        ctk.CTkLabel(edf, text="Target sampling rate (Hz)").grid(row=1, column=0, sticky="w", padx=10)
+        self.fs_var = tk.IntVar(value=self.cfg["edf"].get("target_fs", 250))
+        ctk.CTkEntry(edf, textvariable=self.fs_var).grid(row=1, column=1, sticky="ew", padx=10, pady=6)
+        edf.grid_columnconfigure(1, weight=1)
 
-    def _build_preview_tab(self):
-        tab = self.tabs.tab("Preview")
-        self.preview_box = tk.Text(tab, height=28, width=100, wrap="word")
-        self.preview_box.pack(padx=10, pady=10, fill="both", expand=True)
-        self.preview_box.configure(state="disabled")
+        # channel order (simple comma string)
+        ctk.CTkLabel(edf, text="Channel order (comma-separated)").grid(row=2, column=0, sticky="w", padx=10)
+        self.chan_order_var = tk.StringVar(value=",".join(self.cfg["edf"].get("channel_order", [])))
+        ctk.CTkEntry(edf, textvariable=self.chan_order_var).grid(row=2, column=1, sticky="ew", padx=10, pady=6)
 
-    # --------------- Helpers & events --------------- #
-    def _pick_parent(self):
+        # label map (K:V json string)
+        ctk.CTkLabel(edf, text="EDF label map (JSON)").grid(row=3, column=0, sticky="w", padx=10)
+        self.label_map_var = tk.StringVar(value=json.dumps(self.cfg["edf"].get("edf_label_map", {})))
+        ctk.CTkEntry(edf, textvariable=self.label_map_var).grid(row=3, column=1, sticky="ew", padx=10, pady=6)
+
+        # Section: Somnotate / CSV signals
+        somno = ctk.CTkFrame(tab)
+        somno.pack(fill="x", padx=10, pady=(6, 6))
+        ctk.CTkLabel(somno, text="Somnotate Signals", font=("", 14, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
+
+        ctk.CTkLabel(somno, text="Signal labels (JSON list)").grid(row=1, column=0, sticky="w", padx=10)
+        self.somno_labels_var = tk.StringVar(value=json.dumps(self.cfg.get("state_annotation_signal_labels", [])))
+        ctk.CTkEntry(somno, textvariable=self.somno_labels_var).grid(row=1, column=1, sticky="ew", padx=10, pady=6)
+        somno.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(somno, text="Signal bands (JSON list of [low, high])").grid(row=2, column=0, sticky="w", padx=10)
+        self.somno_bands_var = tk.StringVar(value=json.dumps(self.cfg.get("state_annotation_signal_frequency_bands", [])))
+        ctk.CTkEntry(somno, textvariable=self.somno_bands_var).grid(row=2, column=1, sticky="ew", padx=10, pady=6)
+
+        # Section: Pipeline run mode
+        run = ctk.CTkFrame(tab)
+        run.pack(fill="x", padx=10, pady=(6, 10))
+        ctk.CTkLabel(run, text="Pipeline", font=("", 14, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
+
+        ctk.CTkLabel(run, text="Run mode (what to execute)").grid(row=1, column=0, sticky="w", padx=10)
+        self.run_mode_var = tk.StringVar(value=self.cfg.get("pipeline", {}).get("run_mode", "both"))
+        self.run_mode_menu = ctk.CTkOptionMenu(run, variable=self.run_mode_var, values=["both", "edf_only", "csv_only"]) 
+        self.run_mode_menu.grid(row=1, column=1, sticky="ew", padx=10, pady=6)
+        run.grid_columnconfigure(1, weight=1)
+
+    # ------------------------- Tab: Preview ------------------------- #
+    def _build_preview_tab(self, tab: ctk.CTkFrame) -> None:
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(tab, text="Preview", font=("", 14, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
+
+        self.preview_box = ctk.CTkTextbox(tab, wrap="none")
+        self.preview_box.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        btns = ctk.CTkFrame(tab)
+        btns.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        btns.grid_columnconfigure((0, 1, 2), weight=1)
+        ctk.CTkButton(btns, text="Refresh Preview", command=self.refresh_preview).grid(row=0, column=2, sticky="e")
+
+    # ------------------------- UI helpers ------------------------- #
+    def _labeled_entry(self, parent: ctk.CTkFrame, row: int, label: str, var: tk.StringVar) -> LabeledEntry:
+        lbl = ctk.CTkLabel(parent, text=label)
+        lbl.grid(row=row, column=0, sticky="w", padx=10)
+        ent = ctk.CTkEntry(parent, textvariable=var)
+        ent.grid(row=row, column=1, sticky="ew", padx=10, pady=6)
+        parent.grid_columnconfigure(1, weight=1)
+        return LabeledEntry(parent, lbl, ent)
+
+    def _browse_parent(self) -> None:
         path = filedialog.askdirectory(title="Select parent path")
         if path:
-            self.parent_entry.delete(0, tk.END)
-            self.parent_entry.insert(0, path)
-            self.cfg["paths"]["parent_path"] = path
-            self._refresh_preview()
+            self.parent_var.set(path)
 
-    def _apply_roles(self):
-        roles = [s.strip() for s in self.roles_entry.get().split(",") if s.strip()]
-        if not roles:
-            messagebox.showerror(
-                "Error", "Please enter at least one Channel name (e.g., vHPC, FC, EMG)."
-            )
-            return
-        self.cfg["edf"]["channel_order"] = roles
-        m = self.cfg["edf"].get("edf_label_map", {})
-        for r in roles:
-            m.setdefault(r, r)
-        for k in list(m.keys()):
-            if k not in roles:
-                del m[k]
-        self.cfg["edf"]["edf_label_map"] = m
-        self._rebuild_map_rows()
-        self._refresh_preview()
-
-    def _rebuild_map_rows(self):
-        for w in self.map_frame.winfo_children():
-            w.destroy()
-        self.map_rows.clear()
-        ctk.CTkLabel(self.map_frame, text="Channel Name", anchor="w").grid(
-            row=0, column=0, padx=8, pady=6, sticky="w"
-        )
-        ctk.CTkLabel(self.map_frame, text="EDF Label", anchor="w").grid(
-            row=0, column=1, padx=8, pady=6, sticky="w"
-        )
-        mapping = self.cfg["edf"]["edf_label_map"]
-        for r in self.cfg["edf"]["channel_order"]:
-            role_e = ctk.CTkEntry(self.map_frame)
-            role_e.insert(0, r)
-            role_e.configure(state="disabled")
-            label_e = ctk.CTkEntry(self.map_frame)
-            label_e.insert(0, mapping.get(r, r))
-            row = len(self.map_rows) + 1
-            role_e.grid(row=row, column=0, padx=8, pady=4, sticky="w")
-            label_e.grid(row=row, column=1, padx=8, pady=4, sticky="ew")
-            self.map_rows.append((r, label_e))
-
-    def _collect(self):
-        self.cfg["paths"]["parent_path"] = self.parent_entry.get().strip()
-        self.cfg["paths"]["labchart_dir"] = self.lab_dir_entry.get().strip() or "labchart_data"
-        self.cfg["paths"]["edf_dir"] = self.edf_dir_entry.get().strip() or "edf_data"
-        self.cfg["paths"]["somno_csv"] = self.csv_entry.get().strip() or "somno_input.csv"
-    
-        # Target fs
-        try:
-            self.cfg["edf"]["target_fs"] = int(float(self.fs_entry.get().strip()))
-        except Exception:
-            messagebox.showerror("Error", "Target fs must be a number.")
-            return None
-    
-        # Roles + mapping
-        roles = [s.strip() for s in self.roles_entry.get().split(",") if s.strip()]
-        if not roles:
-            messagebox.showerror("Error", "Please enter channel roles order (e.g., BLA, FC, EMG).")
-            return None
-    
-        mapping = {}
-        for r, e in self.map_rows:
-            mapping[r] = e.get().strip() or r  # EDF header text as typed by user
-    
-        self.cfg["edf"]["channel_order"] = roles
-        self.cfg["edf"]["edf_label_map"] = mapping
-    
-        # Frequency bands
-        bands_text = self.bands_entry.get().strip()
-        bands = []
-        try:
-            if bands_text:
-                for part in bands_text.split(";"):
-                    a, b = [float(x) for x in part.strip().split("-")]
-                    bands.append([a, b])
-        except Exception:
-            messagebox.showerror(
-                "Error", "Frequency bands must look like: 0.5-30; 0.5-30; 10-100"
-            )
-            return None
-        if bands:
-            self.cfg["state_annotation_signal_frequency_bands"] = bands
-    
-        # ---- Derive Somnotate-facing lists from mapping/order ----
-        # EDF header labels (as user typed, may be mixed case)
-        edf_labels = [mapping[r] for r in roles]
-        # Somnotate plot labels / CSV values should be lowercase for exact matching
-        somno_labels = [s.lower() for s in edf_labels]
-        self.cfg["state_annotation_signal_labels"] = somno_labels
-    
-        # CSV column names Somnotate expects to look up in the CSV file
-        # (generic, order-only, underscore version)
-        self.cfg["state_annotation_signals"] = [
-            f"channel_{i+1}_label" for i in range(len(somno_labels))
-        ]
-    
-        # Keep a single set of names for Somnotate to read directly
-        return self.cfg
-
-
-    def _refresh_preview(self):
+    # ------------------------- Preview + Save ------------------------- #
+    def refresh_preview(self) -> None:
         cfg = self._collect()
-        if cfg is None:
-            return
-        self.preview_box.configure(state="normal")
         self.preview_box.delete("1.0", tk.END)
-        self.preview_box.insert(tk.END, json.dumps(cfg, indent=2))
-        self.preview_box.configure(state="disabled")
+        self.preview_box.insert("1.0", json.dumps(cfg, indent=2))
 
-    def on_save(self):
-        cfg = self._collect()
-        if cfg is None:
-            return
-        parent = cfg["paths"]["parent_path"]
-        if not parent:
-            messagebox.showerror("Error", "Please select a parent path.")
-            return
-        os.makedirs(parent, exist_ok=True)
-        parent_out = os.path.join(parent, "config.json")
-
+    def on_save(self) -> None:
         try:
-            # 1) Write the authoritative config to <parent>/config.json
+            cfg = self._collect()
+
+            # Ensure parent path exists
+            parent_path = cfg.get("paths", {}).get("parent_path") or os.getcwd()
+            parent_path = os.path.abspath(parent_path)
+            os.makedirs(parent_path, exist_ok=True)
+
+            # Write config.json in parent_path and cwd for convenience
+            parent_out = os.path.join(parent_path, "config.json")
             with open(parent_out, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
 
-            # 2) Also write a convenience copy to the current working directory
             with open("config.json", "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
 
-            # 3) Expose the config to the caller and close the GUI
             self.final_config = cfg
-            print(f"Saved:\n- {parent_out}\n- {os.path.abspath('config.json')}")
+            print(f"Saved config to:\n- {parent_out}\n- {os.path.abspath('config.json')}")
             self.destroy()
-
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             messagebox.showerror("Error", f"Could not write config.json: {e}")
 
+    def _collect(self) -> dict:
+        # Paths
+        self.cfg.setdefault("paths", {})
+        self.cfg["paths"]["parent_path"] = self.parent_var.get().strip()
+        self.cfg["paths"]["labchart_dir"] = self.labchart_var.get().strip()
+        self.cfg["paths"]["edf_dir"] = self.edf_dir_var.get().strip()
+        self.cfg["paths"]["somno_csv"] = self.somno_csv_var.get().strip()
 
+        # EDF
+        self.cfg.setdefault("edf", {})
+        self.cfg["edf"]["target_fs"] = int(self.fs_var.get())
+        chan_order = [c.strip() for c in self.chan_order_var.get().split(",") if c.strip()]
+        self.cfg["edf"]["channel_order"] = chan_order
+        try:
+            self.cfg["edf"]["edf_label_map"] = json.loads(self.label_map_var.get())
+        except json.JSONDecodeError:
+            messagebox.showwarning("Warning", "EDF label map is not valid JSON. Keeping previous value.")
+
+        # Somnotate signals
+        try:
+            somno_labels = json.loads(self.somno_labels_var.get())
+            self.cfg["state_annotation_signal_labels"] = somno_labels
+        except json.JSONDecodeError:
+            messagebox.showwarning("Warning", "Signal labels are not valid JSON. Keeping previous value.")
+            somno_labels = self.cfg.get("state_annotation_signal_labels", [])
+
+        try:
+            self.cfg["state_annotation_signal_frequency_bands"] = json.loads(self.somno_bands_var.get())
+        except json.JSONDecodeError:
+            messagebox.showwarning("Warning", "Signal bands are not valid JSON. Keeping previous value.")
+
+        # Keep a single set of names for Somnotate to read directly
+        self.cfg["state_annotation_signals"] = [
+            f"channel_{i+1}_label" for i in range(len(self.cfg.get("state_annotation_signal_labels", [])))
+        ]
+
+        # NEW: pipeline run mode
+        self.cfg.setdefault("pipeline", {})
+        self.cfg["pipeline"]["run_mode"] = (self.run_mode_var.get() or "both").strip().lower()
+
+        return self.cfg
+
+    def _on_close(self) -> None:
+        if messagebox.askokcancel("Quit", "Close without saving config?"):
+            self.final_config = None
+            self.destroy()
+
+
+# ----------------------------- Entrypoint ----------------------------- #
 if __name__ == "__main__":
     app = SettingsApp()
     app.mainloop()

@@ -54,7 +54,7 @@ def launch_and_save_config() -> Dict[str, Any]:
     # Prefer the config object produced by the GUI
     cfg = getattr(app, "final_config", None)
     if cfg is None:
-        sys.exit("[ERROR] Configuration was not saved. Please click 'Save config.json' in the GUI.")
+        sys.exit("[ERROR] Configuration was not saved. Please click 'Run' in the GUI.")
 
     # Verify parent path + parent config.json exists
     parent = cfg.get("paths", {}).get("parent_path", "")
@@ -189,7 +189,20 @@ def step_build_somno_csv(cfg: Dict[str, Any]) -> None:
 # ----------------------------- Main ----------------------------- #
 
 if __name__ == "__main__":
+    print("\n=== LabChart to EDF to Somnotate CSV Pipeline ===")
+    print("This will launch a GUI to set parameters and save config.json.")
     cfg = launch_and_save_config()
-    step_labchart_to_edf(cfg)
-    step_build_somno_csv(cfg)
+
+    run_mode = (
+        cfg.get("pipeline", {}).get("run_mode", "both")
+        .strip()
+        .lower()
+    )
+
+    if run_mode in ("both", "edf_only"):
+        step_labchart_to_edf(cfg)
+
+    if run_mode in ("both", "csv_only"):
+        step_build_somno_csv(cfg)
+
     print("\nPipeline complete.")
